@@ -9,6 +9,7 @@ import (
         "bufio"
         "strconv"
         "time"
+        "unicode/utf8"
 )
 
 // conflag
@@ -16,6 +17,8 @@ var conf struct {
     isServer bool
     isClient bool
     LocalAddress string
+    LocalKey string
+    PairedKey string
     RemoteAddress string
 }
 
@@ -25,6 +28,8 @@ func main() {
         flag.BoolVar(&conf.isServer,"s",false,"Whether it is a server")
         flag.BoolVar(&conf.isClient,"c",false,"Whether it is a client")
         flag.StringVar(&conf.LocalAddress,"l","0.0.0.0:9000","Local Listen Address")
+        flag.StringVar(&conf.LocalKey,"lk","99998","Local Key")
+        flag.StringVar(&conf.PairedKey,"pk","99999","Paired Key")
         flag.StringVar(&conf.RemoteAddress,"r","127.0.0.1:9000","Remote Server Address")
 
         flag.Parse()//解析命令行参数
@@ -35,14 +40,14 @@ func main() {
         }else if conf.isServer && !conf.isClient {
                 runAsServer(conf.LocalAddress)
         }else if !conf.isServer && conf.isClient {
-                runAsClient(conf.RemoteAddress)
+                runAsClient(conf.RemoteAddress, conf.LocalKey, conf.PairedKey)
         }else{
                 fmt.Println("No operating mode specified!")
         }
 }
 // runAsClient
 // 作为客户端运行
-func runAsClient(CONNECT string) {
+func runAsClient(CONNECT, LOCALKEY, PAIREDKEY string) {
         srcAddr := &net.UDPAddr{IP: net.IPv4zero, Port: 1999} // 注意端口必须固定
         s, err := net.ResolveUDPAddr("udp4", CONNECT)
         c, err := net.DialUDP("udp4", srcAddr, s)
@@ -57,15 +62,13 @@ func runAsClient(CONNECT string) {
         var peer net.UDPAddr
 
         for {
-                reader := bufio.NewReader(os.Stdin)
-                fmt.Print(">> ")
-                text, _ := reader.ReadString('\n')
-                data := []byte(text + "\n")
-                _, err = c.Write(data)
-                if strings.TrimSpace(string(data)) == "STOP" {
-                        fmt.Println("Exiting UDP client!")
+                data := LOCALKEY + "|" + PAIREDKEY
+                pairedKeyLength := utf8.RuneCountInString(data) - 1
+                if pairedKeyLength > 32 && pairedKeyLength < 16 {
+                        fmt.Println("PAIREDKEY not allowed to be too long")
                         return
                 }
+                _, err = c.Write([]byte(data))
 
                 if err != nil {
                         fmt.Println(err)
@@ -157,43 +160,54 @@ func runAsServer(PORT string) {
         defer connection.Close()
         buffer := make([]byte, 1024)
 
-        clients := make([]net.UDPAddr, 0, 2)
-        clients_string := make([]string, 0, 2)
+        clients := make([]net.UDPAddr, 0, 20)//最多同时20个客户端
+        clients_obj := make([]map[string]string, 0, 20)//最多同时20个客户端
         for {
                 n, addr, err := connection.ReadFromUDP(buffer)
                 if err != nil {
                         fmt.Println(err)
                         return
                 }
-                
-                uid := -1
 
-                if uid == -1 {
-                        clients = append(clients, *addr)
-                        //fmt.Printf("%+v\n", clients)
-                        clients_string = append(clients_string, addr.String())
-                        //fmt.Printf("%+v\n", clients_string)
-                }
+                data := strings.Split(string(buffer[0:n]), "|")
 
-                for i,v := range clients_string {
-                        if addr.String() == v {
-                                uid = i
+                ulid,upid := -1, -1
+                for i,v := range clients_obj {
+                        if data[1] == v["localKey"] {
+                                upid = i
+                        }
+                        if addr.String() == v["clientAddr"] {
+                                ulid = i
                         }
                 }
 
-                fmt.Print(timeDate() + "-> ", string(buffer[0:n-1]))
-
-                if strings.TrimSpace(string(buffer[0:n])) == "STOP" {
-                        fmt.Println(timeDate() + "Exiting UDP server!")
-                        return
+                if ulid == -1 {
+                        clients = append(clients, *addr)
+                        //fmt.Printf("%+v\n", clients)
+                        client := make(map[string]string)
+                        client["localKey"] = data[0]
+                        client["localId"] = fmt.Sprintf("%d", ulid)
+                        client["pairedKey"] = data[1]
+                        client["pairedId"] = fmt.Sprintf("%d", upid)
+                        client["clientAddr"] = addr.String()
+                        clients_obj = append(clients_obj, client)
+                        client["localId"] = fmt.Sprintf("%d", len(clients_obj)-1)
+                        ulid = len(clients_obj)-1
+                        //fmt.Printf("%+v\n", clients_obj)
                 }
 
-                if len(clients) == 2 {
-                        connection.WriteToUDP([]byte(clients[0].String()), &clients[1])
-                        connection.WriteToUDP([]byte(clients[1].String()), &clients[0])
-                        clients_string = clients_string[:0]//清空
-                        clients = clients[:0]//清空
+                fmt.Printf(timeDate() + "-> (%d)LocalKey: %s | (%d)pairedKey: %s\n", ulid, data[0], upid, data[1])
+
+                if ulid != -1 && upid != -1 {
+                        connection.WriteToUDP([]byte(clients[ulid].String()), &clients[upid])
+                        connection.WriteToUDP([]byte(clients[upid].String()), &clients[ulid])
+                        clients_obj = append(clients_obj[:ulid], clients_obj[ulid+1:]...) // 删除
+                        clients = append(clients[:ulid], clients[ulid+1:]...) // 删除
+                        clients_obj = append(clients_obj[:upid], clients_obj[upid+1:]...) // 删除
+                        clients = append(clients[:upid], clients[upid+1:]...) // 删除
+                        fmt.Printf("%+v\n", clients_obj)
                 }
+                fmt.Println(timeDate() + string(buffer[0:n]))
 
         }
 }

@@ -61,31 +61,22 @@ func readFile(filepath string) []byte {
         log.Println(err)
         return nil
     }
-    // os.File.Read(), io.ReadFull() 和
-    // io.ReadAtLeast() 在读取之前都需要一个固定大小的byte slice。
-    // 但ioutil.ReadAll()会读取reader(这个例子中是file)的每一个字节，然后把字节slice返回。
     data, err := ioutil.ReadAll(file)
     if err != nil {
         log.Println(err)
         return nil
     }
-    log.Printf("Data as hex: %x\n", data)
-    log.Printf("Data as string: %s\n", data)
-    log.Printf("Number of bytes read:%d\n", len(data))
     return data
 }
 
 func existsFile(filepath string) bool {
 	// 文件不存在则返回error
-    fileInfo, err := os.Stat(filepath)
+    _, err := os.Stat(filepath)
     if err != nil {
         if os.IsNotExist(err) {
-            log.Println("File does not exist.")
             return false
         }
     }
-    log.Println("File does exist. File information:")
-    log.Println(fileInfo)
     return true
 }
 

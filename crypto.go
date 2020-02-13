@@ -63,6 +63,28 @@ func test_crypto() {
     fmt.Printf("Cipher text: %s\nPlain text: %s\n", ct, pt)
     // second test
 }
+//JSON文件key
+func patchKeysetHandleFromJSON(filepath string) {
+    buf := new(bytes.Buffer)
+    w := keyset.NewJSONWriter(buf)
+    r := keyset.NewJSONReader(buf)
+    if(existsFile(filepath)){
+        bksPub := readFile(filepath)
+        r = keyset.NewJSONReader(bytes.NewBufferString(string(bksPub)))
+        ks, _ := r.Read()
+        //fmt.Printf("%+v\n", ks)
+        kh, _ = insecurecleartextkeyset.Read(&keyset.MemReaderWriter{Keyset: ks})//ks-->kh
+    }else{
+        kh, _ = keyset.NewHandle(aead.AES128GCMKeyTemplate())
+        ks := insecurecleartextkeyset.KeysetMaterial(kh)//kh-->ks
+        //fmt.Printf("%+v\n", ks)
+        w.Write(ks)
+        //fmt.Printf("%+v\n", buf)
+        createFile(filepath, buf.Bytes())
+    }
+    //fmt.Printf("%+v\n", kh)
+}
+//普通文件key
 func patchKeysetHandle(filepath string) {
     if(existsFile(filepath)){
         bksPub := readFile(filepath)
@@ -78,6 +100,7 @@ func patchKeysetHandle(filepath string) {
         bksPriv := base64.StdEncoding.EncodeToString(ksPriv)
         createFile(filepath, []byte(bksPriv))
     }
+    //fmt.Printf("%+v\n", kh)
 }
 // cryptOfAEAD
 // AEAD加密&解密
@@ -94,8 +117,10 @@ func cryptOfAEAD(text []byte, key []byte, isDecrypt bool) []byte {
             log.Fatal(err)
         }
         //log.Printf("加密结果：’%v‘\n", ct)
-        return ct
+        return []byte(base64.StdEncoding.EncodeToString(ct))
     }else{
+        textdecoding, _ := base64.StdEncoding.DecodeString(string(text))
+        text = []byte(textdecoding)
         pt, err := aen.Decrypt(text, key)
         if err != nil {
             log.Fatal(err)

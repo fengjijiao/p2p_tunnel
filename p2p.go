@@ -42,7 +42,7 @@ func main() {
     flag.Parse()//解析命令行参数
 
     //log.Printf("%+v\n",conf)
-    
+
     if conf.isServer && conf.isClient {
         log.Println("It is not allowed to run server and client at the same time!")
     }else if conf.isServer && !conf.isClient {
@@ -58,7 +58,7 @@ func main() {
 // runAsClient
 // 作为客户端运行
 func runAsClient(CONNECT, LOCALKEY, PeerKey string) {
-    patchKeysetHandle(getBaseDirPath() + "/server.dc")//加载服务端加密密匙
+    patchKeysetHandleFromJSON(getBaseDirPath() + "/server.dc")//加载服务端加密密匙
 
     srcAddr := &net.UDPAddr{IP: net.IPv4zero, Port: 1999} // 注意端口必须固定
     s, err := net.ResolveUDPAddr("udp4", CONNECT)
@@ -101,7 +101,7 @@ func runAsClient(CONNECT, LOCALKEY, PeerKey string) {
         break
     }
 
-    patchKeysetHandle(getBaseDirPath() + "/peer.dc")//加载对端加密密匙
+    patchKeysetHandleFromJSON(getBaseDirPath() + "/peer.dc")//加载对端加密密匙
     log.Println(timeDate() + "打洞前等待")
     if(paired && !connected){
         //进行打洞
@@ -157,7 +157,7 @@ func runAsClient(CONNECT, LOCALKEY, PeerKey string) {
 // runAsServer
 // 作为服务端运行
 func runAsServer(PORT string) {
-    patchKeysetHandle(getBaseDirPath() + "/server.dc")//加载服务端加密密匙
+    patchKeysetHandleFromJSON(getBaseDirPath() + "/server.dc")//加载服务端加密密匙
 
     s, err := net.ResolveUDPAddr("udp4", PORT)
     if err != nil {

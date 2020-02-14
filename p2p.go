@@ -27,7 +27,7 @@ var conf struct {
 }
 
 func main() {
-    flag := conflag.New()//生成conflag实例
+    flag := conflag.New()
 
     flag.BoolVar(&conf.isServer,"s",false,"Whether it is a server")
     flag.BoolVar(&conf.isClient,"c",false,"Whether it is a client")
@@ -39,7 +39,7 @@ func main() {
     flag.StringVar(&conf.PeerCryptKey,"ck","defaultpeerkey","Peer Encryption key")
     flag.BoolVar(&conf.isGenKey,"g",false,"Whether generate keys")
 
-    flag.Parse()//解析命令行参数
+    flag.Parse()
 
     //log.Printf("%+v\n",conf)
 
@@ -58,16 +58,16 @@ func main() {
 // runAsClient
 // 作为客户端运行
 func runAsClient(CONNECT, LOCALKEY, PeerKey string) {
-    patchKeysetHandleFromJSON(getBaseDirPath() + "/server.dc")//加载服务端加密密匙
+    patchKeysetHandleFromJSON(getBaseDirPath() + "/server.dc")//Load server-side encryption key
 
-    srcAddr := &net.UDPAddr{IP: net.IPv4zero, Port: 1999} // 注意端口必须固定
+    srcAddr := &net.UDPAddr{IP: net.IPv4zero, Port: 1999}
     s, err := net.ResolveUDPAddr("udp4", CONNECT)
     c, err := net.DialUDP("udp4", srcAddr, s)
     if err != nil {
         log.Fatal(err)
     }
 
-    log.Printf(timeDate() + "The server is %s\n", c.RemoteAddr().String())
+    log.Printf("The client was started.\n")
 
     paired,connected := false, false
     var peer net.UDPAddr
@@ -94,18 +94,17 @@ func runAsClient(CONNECT, LOCALKEY, PeerKey string) {
         if(!paired){
             paired = true
             peer = parseAddr(string(cryptOfAEAD(buffer[0:n], []byte(conf.RemoteCryptKey), true)))
-            log.Printf(timeDate() + "已获取对端地址：%s\n", string(cryptOfAEAD(buffer[0:n], []byte(conf.RemoteCryptKey), true)))
+            log.Printf("Obtained the peer address：%s\n", string(cryptOfAEAD(buffer[0:n], []byte(conf.RemoteCryptKey), true)))
             c.Close()
         }
         
         break
     }
 
-    patchKeysetHandleFromJSON(getBaseDirPath() + "/peer.dc")//加载对端加密密匙
-    log.Println(timeDate() + "打洞前等待")
+    patchKeysetHandleFromJSON(getBaseDirPath() + "/peer.dc")//Load peer encryption key
+    log.Println("Waiting before punching")
     if(paired && !connected){
-        //进行打洞
-        log.Println(timeDate() + "打洞开始")
+        log.Println("Punching starts")
         conn, err := net.DialUDP("udp", srcAddr, &peer)
         if err != nil {
             log.Fatal(err)
@@ -114,17 +113,16 @@ func runAsClient(CONNECT, LOCALKEY, PeerKey string) {
 
         defer conn.Close()
 
-        // 向另一个peer发送一条udp消息(对方peer的nat设备会丢弃该消息,非法来源),用意是在自身的nat设备打开一条可进入的通道,这样对方peer就可以发过来udp消息
-        if _, err = conn.Write(cryptOfAEAD([]byte("peer"), []byte(conf.PeerCryptKey), false)); err != nil {
-            log.Println(timeDate() + "send handshake:", err)
+        if _, err = conn.Write(cryptOfAEAD(genMsg(conf.LocalKey, "peer", timestampNano()), []byte(conf.PeerCryptKey), false)); err != nil {
+            log.Println("send handshake:", err)
         }
         // 心跳包
         go func() {
             for {
                 time.Sleep(3 * time.Second)
-                data := cryptOfAEAD([]byte("ping"), []byte(conf.PeerCryptKey), false)
+                data := cryptOfAEAD(genMsg(conf.LocalKey, "ping", timestampNano()), []byte(conf.PeerCryptKey), false)
                 if _, err = conn.Write(data); err != nil {
-                    log.Println(timeDate() + "ping fail", err)
+                    log.Println("ping fail", err)
                 }
             }
         }()
@@ -133,9 +131,9 @@ func runAsClient(CONNECT, LOCALKEY, PeerKey string) {
                 //time.Sleep(10 * time.Second)
                 reader := bufio.NewReader(os.Stdin)
                 text, _ := reader.ReadString('\n')
-                data := cryptOfAEAD([]byte(strings.Replace(text, "\n", "", -1)), []byte(conf.PeerCryptKey), false)//去除回车符
+                data := cryptOfAEAD(genMsg(conf.LocalKey,strings.Replace(text, "\n", "", -1), timestampNano()), []byte(conf.PeerCryptKey), false)//去除回车符
                 if _, err = conn.Write(data); err != nil {
-                    log.Println(timeDate() + "send msg fail", err)
+                    log.Println("send msg fail", err)
                 }
             }
         }()
@@ -143,11 +141,12 @@ func runAsClient(CONNECT, LOCALKEY, PeerKey string) {
             data := make([]byte, 1024)
             n, _, err := conn.ReadFromUDP(data)
             if err != nil {
-                log.Printf(timeDate() + "error during read: %s\n", err)
+                log.Printf("error during read: %s\n", err)
             } else {
-                data = cryptOfAEAD(data[:n], []byte(conf.PeerCryptKey), true)
-                if stringCompare(data, []byte("ping")) != 0 {
-                    log.Printf("%s\n", data)
+                dataString := cryptOfAEAD(data[:n], []byte(conf.PeerCryptKey), true)
+                msg := parserMsg(dataString)
+                if stringCompare([]byte(msg.Body), []byte("ping")) != 0 {
+                    log.Printf("%s\t%dms\n", msg.Body, timestampNano() - msg.TimeStamp)
                 }
             }
         }
@@ -157,7 +156,7 @@ func runAsClient(CONNECT, LOCALKEY, PeerKey string) {
 // runAsServer
 // 作为服务端运行
 func runAsServer(PORT string) {
-    patchKeysetHandleFromJSON(getBaseDirPath() + "/server.dc")//加载服务端加密密匙
+    patchKeysetHandleFromJSON(getBaseDirPath() + "/server.dc")//Load server-side encryption key
 
     s, err := net.ResolveUDPAddr("udp4", PORT)
     if err != nil {
@@ -168,19 +167,29 @@ func runAsServer(PORT string) {
     if err != nil {
         log.Fatal(err)
     }
+    log.Printf("The server was started.\n")
 
     defer connection.Close()
     buffer := make([]byte, 1024)
 
-    clients := make([]net.UDPAddr, 0, 20)//最多同时20个客户端
-    clients_obj := make([]map[string]string, 0, 20)//最多同时20个客户端
+    clients := make([]net.UDPAddr, 0, 20)//Up to 20 clients at the same time
+    clients_obj := make([]map[string]string, 0, 20)//Up to 20 clients at the same time
+
     for {
         n, addr, err := connection.ReadFromUDP(buffer)
         if err != nil {
             log.Fatal(err)
         }
 
-        data := strings.Split(string(cryptOfAEAD(buffer[0:n], []byte(conf.RemoteCryptKey), true)), "|")
+        if !checkCryptOfAEAD(buffer[0:n], []byte(conf.RemoteCryptKey), true) {
+            log.Println("Pre-encryption and decryption failed!")
+            continue
+        }
+        dataString := cryptOfAEADString(buffer[0:n], []byte(conf.RemoteCryptKey), true)
+        if !strings.Contains(dataString, "|") {
+            continue
+        }
+        data := strings.Split(dataString, "|")
 
         ulid,upid := -1, -1
         for i,v := range clients_obj {
@@ -219,7 +228,7 @@ func runAsServer(PORT string) {
             clients = append(clients[:upid], clients[upid+1:]...) // 删除
             log.Printf("%+v\n", clients_obj)
         }
-        log.Println(timeDate() + string(cryptOfAEAD(buffer[0:n], []byte(conf.RemoteCryptKey), true)))
+        log.Println(string(cryptOfAEAD(buffer[0:n], []byte(conf.RemoteCryptKey), true)))
 
     }
 }
@@ -254,4 +263,9 @@ func parseAddr(addr string) net.UDPAddr {
 // 返回时间
 func timeDate() string {
     return time.Now().Format("2006-01-02 15:04:05")
+}
+// timestampNano
+// 返回时间戳，毫秒
+func timestampNano() int64 {
+    return time.Now().UnixNano() / 1e6
 }

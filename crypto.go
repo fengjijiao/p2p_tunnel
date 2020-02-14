@@ -106,7 +106,7 @@ func patchKeysetHandle(filepath string) {
 // AEAD加密&解密
 func cryptOfAEAD(text []byte, key []byte, isDecrypt bool) []byte {
     //log.Printf("%+v\n", kh)
-    //log.Printf("原文：’%v‘\n", text)
+    //log.Printf("original：’%v‘\n", text)
     aen, err := aead.New(kh)
     if err != nil {
         log.Fatal(err)
@@ -116,7 +116,7 @@ func cryptOfAEAD(text []byte, key []byte, isDecrypt bool) []byte {
         if err != nil {
             log.Fatal(err)
         }
-        //log.Printf("加密结果：’%v‘\n", ct)
+        //log.Printf("Encrypted results：’%v‘\n", ct)
         return []byte(base64.StdEncoding.EncodeToString(ct))
     }else{
         textdecoding, _ := base64.StdEncoding.DecodeString(string(text))
@@ -125,7 +125,58 @@ func cryptOfAEAD(text []byte, key []byte, isDecrypt bool) []byte {
         if err != nil {
             log.Fatal(err)
         }
-        //log.Printf("解密结果：‘%v’\n", pt)
+        //log.Printf("Decryption result：‘%v’\n", pt)
         return pt
+    }
+}
+
+func cryptOfAEADString(text []byte, key []byte, isDecrypt bool) string {
+    //log.Printf("%+v\n", kh)
+    //log.Printf("original：’%v‘\n", text)
+    aen, err := aead.New(kh)
+    if err != nil {
+        log.Fatal(err)
+    }
+    if(!isDecrypt){
+        ct, err := aen.Encrypt(text, key)
+        if err != nil {
+            log.Fatal(err)
+        }
+        //log.Printf("Encrypted results：’%v‘\n", ct)
+        return base64.StdEncoding.EncodeToString(ct)
+    }else{
+        textdecoding, _ := base64.StdEncoding.DecodeString(string(text))
+        text = []byte(textdecoding)
+        pt, err := aen.Decrypt(text, key)
+        if err != nil {
+            log.Fatal(err)
+        }
+        //log.Printf("Decryption result：‘%v’\n", pt)
+        return string(pt)
+    }
+}
+
+func checkCryptOfAEAD(text []byte, key []byte, isDecrypt bool) bool {
+    aen, err := aead.New(kh)
+    if err != nil {
+        log.Println(err)
+        return false
+    }
+    if(!isDecrypt){
+        _, err := aen.Encrypt(text, key)
+        if err != nil {
+            log.Println(err)
+            return false
+        }
+        return true
+    }else{
+        textdecoding, _ := base64.StdEncoding.DecodeString(string(text))
+        text = []byte(textdecoding)
+        _, err := aen.Decrypt(text, key)
+        if err != nil {
+            log.Println(err)
+            return false
+        }
+        return true
     }
 }

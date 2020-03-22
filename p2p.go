@@ -1,7 +1,6 @@
-package main
+package p2p
 
 import (
-    "fmt"
     "net"
     "os"
     "strings"
@@ -191,27 +190,52 @@ func runAsServer(PORT string) {
         }
         data := strings.Split(dataString, "|")
 
+        isRepeat := false
+        for _,v := range clients_obj {
+            //检查LocalKey是否重复,防止对应多客户端
+            if data[0] == v["LocalKey"] {
+                isRepeat = true
+                break
+            }
+        }
+        if isRepeat {
+            log.Printf("LocalKey已存在,禁止重复添加!\n")
+            continue
+        }
+
         ulid,upid := -1, -1
         for i,v := range clients_obj {
-            if data[1] == v["localKey"] {
+            //peer id
+            //查找已记录的对端客户端id
+            //LocalKey|PeerKey
+            if data[1] == v["LocalKey"] && upid == -1 {
                 upid = i
             }
-            if addr.String() == v["clientAddr"] {
+            //local id
+            //查找已记录的当前客户端id
+            if addr.String() == v["clientAddr"] && ulid == -1 {
                 ulid = i
+            }
+            //去除无效查找
+            if upid != -1 && ulid != -1 {
+                break
             }
         }
 
+        //如果来源为未记录客户端
         if ulid == -1 {
+            //添加地址
             clients = append(clients, *addr)
             //log.Printf("%+v\n", clients)
             client := make(map[string]string)
-            client["localKey"] = data[0]
-            client["localId"] = fmt.Sprintf("%d", ulid)
+            client["LocalKey"] = data[0]
+            //client["localId"] = fmt.Sprintf("%d", ulid)
             client["PeerKey"] = data[1]
-            client["pairedId"] = fmt.Sprintf("%d", upid)
+            //client["pairedId"] = fmt.Sprintf("%d", upid)
             client["clientAddr"] = addr.String()
+            //添加详细信息
             clients_obj = append(clients_obj, client)
-            client["localId"] = fmt.Sprintf("%d", len(clients_obj)-1)
+            //client["localId"] = fmt.Sprintf("%d", len(clients_obj)-1)
             ulid = len(clients_obj)-1
             //log.Printf("%+v\n", clients_obj)
         }
@@ -229,7 +253,6 @@ func runAsServer(PORT string) {
             log.Printf("%+v\n", clients_obj)
         }
         log.Println(string(cryptOfAEAD(buffer[0:n], []byte(conf.RemoteCryptKey), true)))
-
     }
 }
 
@@ -265,7 +288,7 @@ func timeDate() string {
     return time.Now().Format("2006-01-02 15:04:05")
 }
 // timestampNano
-// 返回时间戳，毫秒
+// 返回时间戳，毫秒??纳秒
 func timestampNano() int64 {
     return time.Now().UnixNano() / 1e6
 }
